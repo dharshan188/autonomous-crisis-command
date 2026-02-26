@@ -1,0 +1,18 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+.env
+
+# Node
+node_modules/
+
+# Flutter
+.build/
+.dart_tool/
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
