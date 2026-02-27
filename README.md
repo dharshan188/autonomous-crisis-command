@@ -32,9 +32,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 
-step 2 
-ngrok http 8000
-copy url and paste in .env file
+step 2
+# install or setup ngrok if you haven't already
+1. Download the binary from https://ngrok.com/download and add it to your PATH, or install via `npm install -g ngrok`.
+2. Run `ngrok http 8000` from the backend directory (or anywhere on your system).
+3. Copy the generated HTTPS URL and paste it in `.env` as `PUBLIC_URL`.
 
 step 3 
 uvicorn main:app --reload --port 8000

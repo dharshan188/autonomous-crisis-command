@@ -4,3 +4,4 @@ python-dotenv
 twilio
 python-multipart
 pydantic
+groq
