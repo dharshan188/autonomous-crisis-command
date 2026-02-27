@@ -1,12 +1,15 @@
 from datetime import datetime
+import threading
 
 # Global in-memory audit log
 audit_log = []
+# Thread-safe lock for concurrent access
+audit_lock = threading.Lock()
 
 
 def record_event(event_type: str, data: dict) -> None:
     """
-    Record an event to the audit log.
+    Record an event to the audit log in a thread-safe manner.
     
     Args:
         event_type: Type of event being logged (e.g., "CRISIS_DETECTED", "DISPATCH_EXECUTED")
@@ -19,17 +22,18 @@ def record_event(event_type: str, data: dict) -> None:
             "risk_score": 4.5
         })
     """
-    event_record = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "event_type": event_type,
-        "data": data
-    }
-    audit_log.append(event_record)
+    with audit_lock:  # Acquire lock before modifying shared state
+        event_record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": event_type,
+            "data": data
+        }
+        audit_log.append(event_record)
 
 
 def get_audit_log() -> list:
     """
-    Retrieve the complete audit log.
+    Retrieve the complete audit log in a thread-safe manner.
     
     Returns:
         List of audit log entries, each containing timestamp, event_type, and data.
@@ -39,4 +43,5 @@ def get_audit_log() -> list:
         for entry in log:
             print(f"{entry['timestamp']} - {entry['event_type']}")
     """
-    return audit_log
+    with audit_lock:  # Acquire lock before reading shared state
+        return [entry.copy() for entry in audit_log]  # Return a copy to prevent external modifications

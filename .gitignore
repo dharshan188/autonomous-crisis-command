@@ -1,18 +1,19 @@
 # Python
-backend/venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.db
+
+# Virtual Environments
+venv/
+.venv/
+
+# Environment Variables
 .env
 
 # Node
 node_modules/
 
-# Flutter
-.build/
-.dart_tool/
-
-# VSCode
-.vscode/
-
-# Mac
+# OS
 .DS_Store
