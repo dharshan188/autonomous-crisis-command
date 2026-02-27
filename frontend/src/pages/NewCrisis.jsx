@@ -1,65 +1,89 @@
-import { useState } from "react";
-import { mockCrisisCommand } from "../mockApi";
+import { useState, useEffect } from "react";
+import { submitCrisis, getCrisisStatus } from "../services/api";
 
 function NewCrisis() {
   const [crisisText, setCrisisText] = useState("");
   const [approved, setApproved] = useState(false);
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [crisisId, setCrisisId] = useState(null);
 
   const sendCrisis = async () => {
     if (!crisisText) return;
 
     setLoading(true);
     setResponse(null);
+    setError(null);
+    setCrisisId(null);
 
-    const data = await mockCrisisCommand(crisisText, approved);
-    setResponse(data);
+    try {
+      const data = await submitCrisis(crisisText, approved);
+      setResponse(data);
 
-    setLoading(false);
+      if (data.crisis_id) {
+        setCrisisId(data.crisis_id);
+      }
+
+    } catch (err) {
+      setError(err?.message || "Request failed");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // 🔥 POLLING FOR STATUS
+  useEffect(() => {
+    if (!crisisId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const status = await getCrisisStatus(crisisId);
+
+        if (status.status === "EXECUTED" || status.status === "REJECTED") {
+          setResponse(status);
+          clearInterval(interval);
+        }
+
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [crisisId]);
 
   const statusColor = (status) => {
     if (status === "EXECUTED") return "bg-green-600";
-    if (status === "PENDING_APPROVAL") return "bg-yellow-500";
-    return "bg-red-600";
+    if (status === "CALL_TRIGGERED" || status === "WAITING_APPROVAL")
+      return "bg-yellow-500";
+    if (status === "REJECTED") return "bg-red-600";
+    return "bg-gray-600";
   };
 
   return (
     <div className="p-10 text-gray-200">
-
-      {/* HEADER WITH SAP LOGO */}
       <div className="flex justify-between items-start mb-12 border-b border-gray-800 pb-6">
-
-        {/* Left Section */}
         <div>
           <h2 className="text-2xl font-bold text-white">
             Autonomous Crisis Command Platform
           </h2>
           <p className="text-gray-400 text-sm mt-2 max-w-2xl">
-            SAP Hackathon Submission – AI-powered crisis detection,
-            optimization-driven resource allocation, and autonomous
-            decision orchestration system.
+            AI-powered crisis detection and autonomous dispatch system.
           </p>
         </div>
 
-        {/* Right Section - SAP Branding */}
         <div className="flex flex-col items-end">
           <img
             src="/sap-logo.png"
             alt="SAP Logo"
             className="h-16 object-contain"
           />
-          <span className="mt-2 text-white font-semibold text-sm tracking-wide">
-            SAP x Great Lakes MBA HackFest
-          </span>
         </div>
-
       </div>
 
       <div className="grid grid-cols-2 gap-8">
-
-        {/* LEFT PANEL */}
+        {/* LEFT */}
         <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
           <h3 className="font-semibold mb-4 text-white">
             Crisis Deployment Interface
@@ -92,16 +116,18 @@ function NewCrisis() {
           </div>
         </div>
 
-        {/* RIGHT PANEL */}
+        {/* RIGHT */}
         <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
           <h3 className="font-semibold mb-4 text-white">
             Decision Intelligence Output
           </h3>
 
-          {!response && (
-            <p className="text-gray-500">
-              Awaiting crisis input...
-            </p>
+          {!response && !error && (
+            <p className="text-gray-500">Awaiting crisis input...</p>
+          )}
+
+          {error && (
+            <div className="text-red-400 mb-4">Error: {error}</div>
           )}
 
           {response && (
@@ -116,31 +142,45 @@ function NewCrisis() {
                 </span>
               </div>
 
-              {response.execution_result && (
-                <div className="text-green-400 text-sm">
-                  Dispatch Units: {response.execution_result.dispatch_units.join(", ")}
-                  <br />
-                  Estimated Response Time: {response.execution_result.eta}
+              {crisisId && (
+                <div className="mt-2 text-sm text-gray-300">
+                  Crisis ID:{" "}
+                  <span className="font-mono text-white">
+                    {crisisId}
+                  </span>
                 </div>
               )}
 
-              {response.alerts && (
-                <ul className="mt-4 list-disc list-inside text-sm text-blue-400">
-                  {response.alerts.map((alert, i) => (
-                    <li key={i}>{alert}</li>
+              {response.execution_result?.dispatch_log && (
+                <div className="text-green-400 text-sm mt-3">
+                  {response.execution_result.dispatch_log.map((item, i) => (
+                    <div key={i}>
+                      🚒 {item.unit_type} dispatched to {item.destination}
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
 
-              {response.status === "PENDING_APPROVAL" && (
+              {response.status === "CALL_TRIGGERED" && (
                 <div className="text-yellow-400 mt-4 text-sm">
-                  Executive authorization required before dispatch execution.
+                  Executive authorization required. Phone call initiated.
+                </div>
+              )}
+
+              {response.status === "WAITING_APPROVAL" && (
+                <div className="text-yellow-400 mt-4 text-sm">
+                  Waiting for executive approval...
+                </div>
+              )}
+
+              {response.status === "REJECTED" && (
+                <div className="text-red-400 mt-4 text-sm">
+                  Request rejected by executive.
                 </div>
               )}
             </>
           )}
         </div>
-
       </div>
     </div>
   );

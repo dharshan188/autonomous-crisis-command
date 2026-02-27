@@ -1,46 +1,50 @@
 def calculate_risk(crisis: dict) -> float:
     """
-    Calculate risk score based on crisis type and severity.
-    
-    Args:
-        crisis: Dictionary containing:
-            - crisis_type (str): Type of crisis (Fire, Flood, Gas Leak, Accident, Earthquake, etc.)
-            - severity (str): Severity level (Low, Medium, High, Critical)
-    
-    Returns:
-        float: Risk score rounded to 2 decimal places
-        
-    Example:
-        calculate_risk({"crisis_type": "Fire", "severity": "High"})
-        Returns: 4.5 (3 * 1.5)
+    Calculates numerical risk score based on severity and context.
     """
-    # Severity mapping
-    severity_mapping = {
-        "Low": 1,
-        "Medium": 2,
-        "High": 3,
-        "Critical": 4
-    }
-    
-    # Crisis type multipliers
-    crisis_multipliers = {
-        "Fire": 1.5,
-        "Flood": 1.3,
-        "Gas Leak": 1.7,
-        "Accident": 1.2,
-        "Earthquake": 2.0
-    }
-    
-    # Extract and validate severity
-    severity = crisis.get("severity", "Low")
-    severity_value = severity_mapping.get(severity, 1)
-    
-    # Extract and validate crisis type
-    crisis_type = crisis.get("crisis_type", "Unknown")
-    multiplier = crisis_multipliers.get(crisis_type, 1.0)
-    
-    # Calculate risk score
-    risk_score = severity_value * multiplier
-    
-    # Round to 2 decimal places
-    return round(risk_score, 2)
+
+    severity = crisis.get("severity", "").lower()
+    crisis_type = crisis.get("crisis_type", "").lower()
+    risk_factor = crisis.get("risk_factor", "").lower()
+
+    risk_score = 0.0
+
+    # --------------------------------
+    # Base severity scoring
+    # --------------------------------
+    if severity in ["low"]:
+        risk_score += 1.0
+    elif severity in ["medium", "moderate"]:
+        risk_score += 3.0
+    elif severity in ["high", "major", "severe", "critical"]:
+        risk_score += 5.0
+    else:
+        risk_score += 2.0  # default fallback
+
+    # --------------------------------
+    # Crisis type weight
+    # --------------------------------
+    if crisis_type in ["fire", "industrial accident", "gas leak"]:
+        risk_score += 1.0
+    elif crisis_type in ["earthquake"]:
+        risk_score += 2.0
+
+    # --------------------------------
+    # High danger keywords
+    # --------------------------------
+    danger_keywords = [
+        "fuel",
+        "chemical",
+        "refinery",
+        "radiation",
+        "explosion",
+        "casualties",
+        "toxic",
+        "nuclear"
+    ]
+
+    for word in danger_keywords:
+        if word in risk_factor:
+            risk_score += 1.5
+
+    return round(risk_score, 1)

@@ -24,6 +24,28 @@ class CrisisEngine:
             "Earthquake": 1
         }
 
+    # ------------------------------------------------------------------
+    # Resource type normalization
+    # ------------------------------------------------------------------
+    def _normalize_resource_type(self, crisis_type: str) -> str:
+        """Map various crisis descriptions to the canonical type used
+        by the resource pool. This runs *after* the model-level
+        normalization to catch synonyms that the AI might produce.
+
+        The mapping is intentionally conservative and production-safe.
+        """
+        if not crisis_type:
+            return "Unknown"
+
+        text = crisis_type.strip().lower()
+        mapping = {
+            "industrial accident": "Accident",
+            "road accident": "Accident",
+            # explosion is often reported separately but we treat it as fire
+            "explosion": "Fire",
+        }
+        return mapping.get(text, crisis_type.title())
+
     def process_crises(self, crisis_texts: list, approved: bool) -> dict:
         crises = []
 
@@ -40,6 +62,11 @@ class CrisisEngine:
                     "location": "Unknown",
                     "severity": "Low"
                 }
+
+            # normalize type for allocation & auditing
+            normalized = self._normalize_resource_type(crisis_data.get("crisis_type", ""))
+            print("NORMALIZED TYPE:", normalized)
+            crisis_data["crisis_type"] = normalized
 
             # STEP 2: Calculate risk
             crisis_data["risk_score"] = calculate_risk(crisis_data)
@@ -60,6 +87,7 @@ class CrisisEngine:
         # STEP 4: Resolve resource conflicts
         # -----------------------------------------
         decision_output = resolve_conflicts(crises, self.resource_pool)
+        print("DECISION OUTPUT:", decision_output)
 
         record_event("DECISION_MADE", {
             "allocated": len(decision_output["decisions"]),
