@@ -7,7 +7,8 @@ import LiveMonitor from "./pages/LiveMonitor";
 import Resources from "./pages/Resources";
 import AuditLog from "./pages/AuditLog";
 import Analytics from "./pages/Analytics";
-import Operations from "./pages/Operations"; // ✅ ADD THIS
+import Operations from "./pages/Operations";
+import Autonomous from "./pages/Autonomous";   // ✅ ADD THIS
 
 function App() {
   return (
@@ -25,8 +26,11 @@ function App() {
           <div className="p-6 flex-1 overflow-y-auto">
             <Routes>
 
-              {/* Main Crisis Page */}
+              {/* Manual Crisis Page */}
               <Route path="/" element={<NewCrisis />} />
+
+              {/* Autonomous Monitoring */}
+              <Route path="/autonomous" element={<Autonomous />} />
 
               {/* Live Monitoring */}
               <Route path="/live-monitor" element={<LiveMonitor />} />

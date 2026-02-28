@@ -13,43 +13,43 @@ TWILIO_NUMBER = os.getenv("TWILIO_NUMBER")
 
 twilio_client = Client(TWILIO_SID, TWILIO_AUTH)
 
-
 # ---------------------------------------------------
-# ROLE-BASED RESOURCE REGISTRY
+# ROLE-BASED RESOURCE REGISTRY (EXPANDED)
 # ---------------------------------------------------
 
 RESOURCE_REGISTRY = {
+
     "Fire": [
-        {
-            "role": "Firefighter Team",
-            "number": "+919363948181"
-        },
-        {
-            "role": "Ambulance Team",
-            "number": "+917397074365"
-        }
+        {"role": "Firefighter Team", "number": "+919363948181"},
+        {"role": "Ambulance Team", "number": "+917397074365"}
     ],
+
     "Flood": [
-        {
-            "role": "Flood Medical Team",
-            "number": "+917904657955"
-        },
-        {
-            "role": "Disaster Response Team",
-            "number": "+919043275000"
-        }
+        {"role": "Flood Medical Team", "number": "+917904657955"},
+        {"role": "Disaster Response Team", "number": "+919043275000"}
+    ],
+
+    "Accident": [
+        {"role": "Traffic Police", "number": "+919363948181"},
+        {"role": "Ambulance Team", "number": "+917397074365"}
+    ],
+
+    "Gas Leak": [
+        {"role": "Hazmat Team", "number": "+919363948181"},
+        {"role": "Ambulance Team", "number": "+917397074365"}
+    ],
+
+    "Earthquake": [
+        {"role": "Search & Rescue Team", "number": "+919043275000"},
+        {"role": "Ambulance Team", "number": "+917397074365"}
     ]
 }
-
 
 # ---------------------------------------------------
 # APPROVAL CALL
 # ---------------------------------------------------
 
 def trigger_approval_call(to_number: str, public_url: str, crisis_id: str) -> str:
-    """
-    Triggers Twilio voice approval call.
-    """
 
     if not public_url.startswith("https://"):
         raise ValueError("PUBLIC_URL must be HTTPS (ngrok URL)")
@@ -69,48 +69,33 @@ def trigger_approval_call(to_number: str, public_url: str, crisis_id: str) -> st
 
     return call.sid
 
-
 # ---------------------------------------------------
-# TEAM MESSAGE GENERATOR
+# MESSAGE GENERATOR
 # ---------------------------------------------------
 
 def generate_team_message(crisis_type, role, location, people_count=None):
 
+    crisis_type = crisis_type.strip()
+
     if crisis_type == "Fire":
-
-        if role == "Firefighter Team":
-            return (
-                f"Emergency fire alert at {location}. "
-                "Deploy fire suppression units immediately."
-            )
-
-        if role == "Ambulance Team":
-            return (
-                f"Medical emergency due to fire at {location}. "
-                "Prepare trauma kits and proceed immediately."
-            )
+        return f"Fire emergency at {location}. Immediate response required."
 
     if crisis_type == "Flood":
+        return f"Flood emergency at {location}. Rescue and medical teams required."
 
-        if role == "Flood Medical Team":
-            return (
-                f"Flood emergency at {location}. "
-                f"Approximately {people_count or 'multiple'} people affected. "
-                "Prepare emergency medical kits and respond immediately."
-            )
+    if crisis_type == "Accident":
+        return f"Road accident reported at {location}. Emergency medical assistance required."
 
-        if role == "Disaster Response Team":
-            return (
-                f"Severe flood reported at {location}. "
-                f"{people_count or 'Multiple'} civilians stranded. "
-                "Deploy rescue equipment and evacuation gear immediately."
-            )
+    if crisis_type == "Gas Leak":
+        return f"Gas leak detected at {location}. Hazmat response required immediately."
+
+    if crisis_type == "Earthquake":
+        return f"Earthquake impact reported at {location}. Search and rescue teams required."
 
     return f"Emergency reported at {location}. Immediate action required."
 
-
 # ---------------------------------------------------
-# CALL + SMS TO SINGLE RESOURCE
+# CALL + SMS
 # ---------------------------------------------------
 
 def call_resource(number: str, message: str):
@@ -122,9 +107,7 @@ def call_resource(number: str, message: str):
             from_=TWILIO_NUMBER
         )
     except Exception:
-        print(f"[ERROR] Call failed for {number}")
         traceback.print_exc()
-
 
 def sms_resource(number: str, message: str):
     try:
@@ -135,24 +118,23 @@ def sms_resource(number: str, message: str):
             from_=TWILIO_NUMBER
         )
     except Exception:
-        print(f"[ERROR] SMS failed for {number}")
         traceback.print_exc()
 
-
 # ---------------------------------------------------
-# ORCHESTRATE MULTI-TEAM RESPONSE
+# ORCHESTRATOR
 # ---------------------------------------------------
 
 def orchestrate_response(crisis_type: str, location: str, people_count=None):
-    """
-    Notify ALL registered resources for a crisis.
-    Calls + SMS sent in parallel threads.
-    """
+
+    crisis_type = crisis_type.strip()
 
     resources = RESOURCE_REGISTRY.get(crisis_type)
 
     if not resources:
         print("No registered resources for:", crisis_type)
+        record_event("NO_RESOURCE_FOUND", {
+            "crisis_type": crisis_type
+        })
         return
 
     threads = []
@@ -161,13 +143,12 @@ def orchestrate_response(crisis_type: str, location: str, people_count=None):
 
         role = resource["role"]
         number = resource["number"]
-        
+
         record_event("DISPATCHING_TEAM", {
             "crisis_type": crisis_type,
             "location": location,
             "role": role,
-            "number": number,
-            "action": "Sending SMS and Voice Call"
+            "number": number
         })
 
         message = generate_team_message(
@@ -177,7 +158,6 @@ def orchestrate_response(crisis_type: str, location: str, people_count=None):
             people_count
         )
 
-        # Call thread
         t_call = threading.Thread(
             target=call_resource,
             args=(number, message),
@@ -185,7 +165,6 @@ def orchestrate_response(crisis_type: str, location: str, people_count=None):
         )
         threads.append(t_call)
 
-        # SMS thread
         t_sms = threading.Thread(
             target=sms_resource,
             args=(number, message),
@@ -196,4 +175,4 @@ def orchestrate_response(crisis_type: str, location: str, people_count=None):
     for t in threads:
         t.start()
 
-    print(f"Orchestration triggered for {crisis_type} at {location}")
+    print(f"Orchestration triggered for {crisis_type} at {location}") 
