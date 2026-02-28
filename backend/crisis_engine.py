@@ -106,9 +106,10 @@ class CrisisEngine:
         # STEP 5: Approval Check
         # ---------------------------------
 
-        high_risk_cases = [
+        # All crisis responses require human approval before dispatch
+        approval_required_cases = [
             d for d in decision_output["decisions"]
-            if d.get("risk_score", 0) >= 4
+            if d.get("risk_score", 0) >= 1
         ]
 
         # If no allocation happened, return gracefully
@@ -118,16 +119,16 @@ class CrisisEngine:
                 "details": decision_output["tradeoffs"]
             }
 
-        # Approval required
-        if high_risk_cases and not approved:
+        # Approval required for all cases
+        if approval_required_cases and not approved:
             record_event("AUTHORIZATION_REQUIRED", {
-                "high_risk_count": len(high_risk_cases),
-                "risks": high_risk_cases
+                "approval_required_count": len(approval_required_cases),
+                "cases": approval_required_cases
             })
 
             return {
                 "status": "PENDING_APPROVAL",
-                "details": high_risk_cases,
+                "details": approval_required_cases,
                 "decision_output": decision_output
             }
 
