@@ -32,7 +32,6 @@ function NewCrisis() {
     }
   };
 
-  // 🔥 POLLING FOR STATUS
   useEffect(() => {
     if (!crisisId) return;
 
@@ -62,13 +61,13 @@ function NewCrisis() {
   };
 
   return (
-    <div className="p-10 text-gray-200">
+    <div className="p-10 text-gray-200 text-base">
       <div className="flex justify-between items-start mb-12 border-b border-gray-800 pb-6">
         <div>
-          <h2 className="text-2xl font-bold text-white">
+          <h2 className="text-3xl font-bold text-white">
             Autonomous Crisis Command Platform
           </h2>
-          <p className="text-gray-400 text-sm mt-2 max-w-2xl">
+          <p className="text-gray-400 text-base mt-2 max-w-2xl">
             AI-powered crisis detection and autonomous dispatch system.
           </p>
         </div>
@@ -85,12 +84,12 @@ function NewCrisis() {
       <div className="grid grid-cols-2 gap-8">
         {/* LEFT */}
         <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
-          <h3 className="font-semibold mb-4 text-white">
+          <h3 className="font-semibold mb-4 text-xl text-white">
             Crisis Deployment Interface
           </h3>
 
           <textarea
-            className="w-full p-3 bg-gray-800 rounded-lg mb-4 text-white"
+            className="w-full p-3 bg-gray-800 rounded-lg mb-4 text-white text-base"
             rows="5"
             placeholder="Describe the crisis situation..."
             value={crisisText}
@@ -98,7 +97,7 @@ function NewCrisis() {
           />
 
           <div className="flex justify-between items-center">
-            <label className="flex items-center gap-2 text-sm text-gray-300">
+            <label className="flex items-center gap-2 text-base text-gray-300">
               <input
                 type="checkbox"
                 checked={approved}
@@ -109,7 +108,7 @@ function NewCrisis() {
 
             <button
               onClick={sendCrisis}
-              className="bg-blue-600 px-6 py-2 rounded-lg hover:bg-blue-700 transition font-medium"
+              className="bg-blue-600 px-6 py-2 rounded-lg hover:bg-blue-700 transition font-medium text-base"
             >
               {loading ? "Processing..." : "Execute AI Resolution"}
             </button>
@@ -118,23 +117,27 @@ function NewCrisis() {
 
         {/* RIGHT */}
         <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
-          <h3 className="font-semibold mb-4 text-white">
+          <h3 className="font-semibold mb-4 text-xl text-white">
             Decision Intelligence Output
           </h3>
 
           {!response && !error && (
-            <p className="text-gray-500">Awaiting crisis input...</p>
+            <p className="text-gray-500 text-base">
+              Awaiting crisis input...
+            </p>
           )}
 
           {error && (
-            <div className="text-red-400 mb-4">Error: {error}</div>
+            <div className="text-red-400 mb-4 text-base">
+              Error: {error}
+            </div>
           )}
 
           {response && (
             <>
               <div className="mb-4">
                 <span
-                  className={`px-4 py-1 rounded-full text-sm font-bold ${statusColor(
+                  className={`px-4 py-1 rounded-full text-base font-bold ${statusColor(
                     response.status
                   )}`}
                 >
@@ -143,7 +146,7 @@ function NewCrisis() {
               </div>
 
               {crisisId && (
-                <div className="mt-2 text-sm text-gray-300">
+                <div className="mt-2 text-base text-gray-300">
                   Crisis ID:{" "}
                   <span className="font-mono text-white">
                     {crisisId}
@@ -152,7 +155,7 @@ function NewCrisis() {
               )}
 
               {response.execution_result?.dispatch_log && (
-                <div className="text-green-400 text-sm mt-3">
+                <div className="text-green-400 text-base mt-3">
                   {response.execution_result.dispatch_log.map((item, i) => (
                     <div key={i}>
                       🚒 {item.unit_type} dispatched to {item.destination}
@@ -162,19 +165,19 @@ function NewCrisis() {
               )}
 
               {response.status === "CALL_TRIGGERED" && (
-                <div className="text-yellow-400 mt-4 text-sm">
+                <div className="text-yellow-400 mt-4 text-base">
                   Executive authorization required. Phone call initiated.
                 </div>
               )}
 
               {response.status === "WAITING_APPROVAL" && (
-                <div className="text-yellow-400 mt-4 text-sm">
+                <div className="text-yellow-400 mt-4 text-base">
                   Waiting for executive approval...
                 </div>
               )}
 
               {response.status === "REJECTED" && (
-                <div className="text-red-400 mt-4 text-sm">
+                <div className="text-red-400 mt-4 text-base">
                   Request rejected by executive.
                 </div>
               )}
