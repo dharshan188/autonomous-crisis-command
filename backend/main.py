@@ -36,14 +36,17 @@ class CrisisCommandRequest(BaseModel):
     crises: list
     approved: bool
 
+
 class CrisisCommandResponse(BaseModel):
     status: str
     details: dict | list | None = None
     crisis_id: str | None = None
     call_sid: str | None = None
 
+
 class AutonomousRequest(BaseModel):
     location: str
+
 
 # =========================================================
 # GLOBAL STATE
@@ -54,8 +57,9 @@ crisis_engine = None
 pending_decisions = {}
 pending_decisions_lock = threading.Lock()
 
-# 🔥 Anti-spam protection
+# Anti-duplicate autonomous alerts
 active_autonomous_alerts = {}
+
 
 # =========================================================
 # LIFESPAN
@@ -68,6 +72,7 @@ async def lifespan(app: FastAPI):
     crisis_engine = CrisisEngine(crisis_model)
     create_tables()
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -91,6 +96,7 @@ async def crisis_command(request: CrisisCommandRequest):
         request.approved
     )
 
+    # If already executed
     if result["status"] != "PENDING_APPROVAL":
         return result
 
@@ -126,6 +132,7 @@ async def crisis_command(request: CrisisCommandRequest):
         "call_sid": call_sid
     }
 
+
 # =========================================================
 # 🌊 AUTONOMOUS MODE
 # =========================================================
@@ -135,12 +142,20 @@ async def autonomous_scan(request: AutonomousRequest):
 
     result = detect_flood(request.location)
 
+    # Always return structured SAFE / MONITORING response
     if result["status"] != "FLOOD_DETECTED":
-        return result
+        return {
+            "status": result.get("status"),
+            "location": request.location,
+            "weather": result.get("weather", {}),
+            "message": result.get("message"),
+            "rule_reason": result.get("rule_reason"),
+            "news_count": result.get("news_count")
+        }
 
     location_key = result["location"]
 
-    # 🔥 Prevent duplicate flood calls
+    # Prevent duplicate flood calls
     if location_key in active_autonomous_alerts:
         return {
             "status": "ALREADY_PENDING",
@@ -186,11 +201,14 @@ async def autonomous_scan(request: AutonomousRequest):
         "status": "FLOOD_CALL_TRIGGERED",
         "crisis_id": crisis_id,
         "call_sid": call_sid,
-        "weather": result.get("weather")
+        "location": location_key,
+        "weather": result.get("weather"),
+        "rule_reason": result.get("rule_reason")
     }
 
+
 # =========================================================
-# VOICE
+# 📞 VOICE ENDPOINT
 # =========================================================
 
 @app.api_route("/voice", methods=["GET", "POST"])
@@ -206,6 +224,7 @@ async def voice(crisis_id: str = Query(None)):
     gather.say("Press 6 to approve dispatch.")
 
     return Response(str(response), media_type="text/xml")
+
 
 # =========================================================
 # 🔥 PROCESS APPROVAL
@@ -239,7 +258,7 @@ async def process(request: Request, crisis_id: str = Query(None)):
             crisis_type = decision_output["decisions"][0]["crisis_type"]
             location = decision_output["decisions"][0]["location"]
 
-            # 🔥 Forward to teams
+            # Forward to teams
             threading.Thread(
                 target=orchestrate_response,
                 args=(crisis_type, location, 25),
@@ -263,7 +282,7 @@ async def process(request: Request, crisis_id: str = Query(None)):
 
             response.say("Rejected.")
 
-        # 🔥 Cleanup
+        # Cleanup
         del pending_decisions[crisis_id]
 
         # Remove from autonomous lock
@@ -275,8 +294,9 @@ async def process(request: Request, crisis_id: str = Query(None)):
 
     return Response(str(response), media_type="text/xml")
 
+
 # =========================================================
-# STATUS + REPORT
+# 📊 STATUS + REPORT
 # =========================================================
 
 @app.get("/crisis_status/{crisis_id}")
@@ -288,16 +308,19 @@ async def crisis_status(crisis_id: str):
         return {"status": "NOT_FOUND"}
     return {"status": report.approval_status}
 
+
 @app.get("/audit_log")
 async def audit_log_endpoint():
     return get_audit_log()
+
 
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
 
+
 # =========================================================
-# RUN
+# 🚀 RUN
 # =========================================================
 
 if __name__ == "__main__":

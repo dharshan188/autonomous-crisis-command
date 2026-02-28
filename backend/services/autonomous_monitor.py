@@ -1,6 +1,6 @@
 """
-AUTONOMOUS FLOOD MONITOR v3
-Stable + Smart + Location Safe + Weather Safe
+AUTONOMOUS FLOOD MONITOR v4
+Smart Location Matching + Always Live Weather + India Safe
 """
 
 import requests
@@ -26,7 +26,7 @@ OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 TIME_WINDOW_HOURS = 48
 CONFIRMATION_THRESHOLD = 1
-STRONG_NEWS_THRESHOLD = 5
+STRONG_NEWS_THRESHOLD = 3  # lowered
 
 FLOOD_KEYWORDS = [
     "flood", "flooded", "flooding",
@@ -40,7 +40,7 @@ FLOOD_KEYWORDS = [
 # ─────────────────────────────────────────
 
 nlp = spacy.load("en_core_web_sm")
-geocoder = Nominatim(user_agent="flood_monitor_v3", timeout=10)
+geocoder = Nominatim(user_agent="flood_monitor_v4", timeout=10)
 
 # ─────────────────────────────────────────
 # NEWS
@@ -71,7 +71,7 @@ def parse_rss(xml):
 
         try:
             pub_time = parsedate_to_datetime(pub_date)
-        except Exception:
+        except:
             continue
 
         if now - pub_time > timedelta(hours=TIME_WINDOW_HOURS):
@@ -108,12 +108,11 @@ def get_weather(lat, lon):
             "rain_1h": data.get("rain", {}).get("1h", 0),
             "description": data.get("weather", [{}])[0].get("description")
         }
-
-    except Exception:
+    except:
         return {}
 
 # ─────────────────────────────────────────
-# LOCATION EXTRACTION
+# LOCATION
 # ─────────────────────────────────────────
 
 def extract_location(text):
@@ -130,14 +129,7 @@ def geocode_location(name):
         if not loc:
             return None
 
-        address = loc.address.lower()
-
-        # Prevent building-level matches
-        if any(word in address for word in ["shop", "clinic", "mall", "hotel"]):
-            return None
-
         return loc.latitude, loc.longitude
-
     except (GeocoderTimedOut, GeocoderServiceError):
         return None
 
@@ -149,15 +141,15 @@ def evaluate_flood(weather, news_count):
 
     rain = weather.get("rain_1h", 0)
 
-    # Strong media override
+    # Strong news override
     if news_count >= STRONG_NEWS_THRESHOLD:
         return True, "Multiple confirmed flood reports"
 
-    # Lower rain threshold
-    if rain is not None and rain >= 5:
+    # Lowered rain threshold (India friendly)
+    if rain is not None and rain >= 2:
         return True, "Rainfall anomaly detected"
 
-    return False, "Weather within safe range"
+    return False, "Monitoring rainfall levels"
 
 # ─────────────────────────────────────────
 # MAIN DETECTION
@@ -170,7 +162,7 @@ def detect_flood(state=None):
     try:
         xml = fetch_news(query)
         titles = parse_rss(xml)
-    except Exception:
+    except:
         return {
             "status": "ERROR",
             "message": "News fetch failed",
@@ -181,44 +173,36 @@ def detect_flood(state=None):
 
     for title in titles:
         if any(k in title.lower() for k in FLOOD_KEYWORDS):
+
             if state:
                 if state.lower() in title.lower():
                     matches.append(title)
+                else:
+                    # Also allow state-level match using NLP
+                    doc = nlp(title)
+                    for ent in doc.ents:
+                        if ent.label_ == "GPE":
+                            if state.lower() in ent.text.lower():
+                                matches.append(title)
+                                break
             else:
                 matches.append(title)
 
+    # ALWAYS GET WEATHER
+    weather = {}
+    if state:
+        geo = geocode_location(state)
+        if geo:
+            lat, lon = geo
+            weather = get_weather(lat, lon)
+
     if len(matches) >= CONFIRMATION_THRESHOLD:
-
-        location = None
-
-        for title in matches:
-            location = extract_location(title)
-            if location:
-                break
-
-        if not location:
-            location = state
-
-        geo = geocode_location(location)
-
-        if not geo:
-            return {
-                "status": "MONITORING",
-                "location": location,
-                "weather": {},
-                "rule_reason": "Location unresolved"
-            }
-
-        lat, lon = geo
-        weather = get_weather(lat, lon)
 
         alert, reason = evaluate_flood(weather, len(matches))
 
         return {
             "status": "FLOOD_DETECTED" if alert else "MONITORING",
-            "location": location,
-            "latitude": lat,
-            "longitude": lon,
+            "location": state,
             "weather": weather,
             "rule_reason": reason,
             "news_count": len(matches),
@@ -227,14 +211,12 @@ def detect_flood(state=None):
 
     return {
         "status": "SAFE",
-        "message": "No flood signals detected",
-        "weather": {},
+        "location": state,
+        "weather": weather,
+        "message": "Monitoring — no flood signals",
         "checked_at": datetime.utcnow().isoformat()
     }
 
-# ─────────────────────────────────────────
-# TEST
-# ─────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(detect_flood("Sydney"))
+    print(detect_flood("Chennai"))
