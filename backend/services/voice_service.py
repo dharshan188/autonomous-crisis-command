@@ -3,6 +3,7 @@ import os
 import threading
 import traceback
 from dotenv import load_dotenv
+from services.audit import record_event
 
 load_dotenv()
 
@@ -53,7 +54,7 @@ def trigger_approval_call(to_number: str, public_url: str, crisis_id: str) -> st
     if not public_url.startswith("https://"):
         raise ValueError("PUBLIC_URL must be HTTPS (ngrok URL)")
 
-    voice_url = f"{public_url}/voice?crisis_id={crisis_id}"
+    voice_url = f"{public_url}/voice?crisis_id={crisis_id}&ngrok-skip-browser-warning=true"
 
     print("TRIGGERING APPROVAL CALL TO:", to_number)
     print("VOICE URL:", voice_url)
@@ -160,6 +161,14 @@ def orchestrate_response(crisis_type: str, location: str, people_count=None):
 
         role = resource["role"]
         number = resource["number"]
+        
+        record_event("DISPATCHING_TEAM", {
+            "crisis_type": crisis_type,
+            "location": location,
+            "role": role,
+            "number": number,
+            "action": "Sending SMS and Voice Call"
+        })
 
         message = generate_team_message(
             crisis_type,

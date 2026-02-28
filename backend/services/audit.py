@@ -24,7 +24,7 @@ def record_event(event_type: str, data: dict) -> None:
     """
     with audit_lock:  # Acquire lock before modifying shared state
         event_record = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
             "event_type": event_type,
             "data": data
         }
