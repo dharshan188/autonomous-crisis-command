@@ -1,5 +1,6 @@
 import uvicorn
 import os
+import threading
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import Response
 from starlette.middleware.cors import CORSMiddleware
@@ -10,11 +11,9 @@ from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 from uuid import uuid4
 from datetime import datetime
-import threading
 
 from ai_model import CrisisModel
 from crisis_engine import CrisisEngine
-from services.audit import get_audit_log, record_event
 from services.dispatcher import execute_dispatch
 
 load_dotenv()
@@ -27,9 +26,17 @@ PUBLIC_URL = os.getenv("PUBLIC_URL")
 
 twilio_client = Client(TWILIO_SID, TWILIO_AUTH)
 
+# 👇 This is the emergency responder number
+EMERGENCY_CONTACT = "+919363948181"
+
+# -----------------------------
+# Models
+# -----------------------------
+
 class CrisisCommandRequest(BaseModel):
     crises: list
     approved: bool
+
 
 class CrisisCommandResponse(BaseModel):
     status: str
@@ -39,6 +46,11 @@ class CrisisCommandResponse(BaseModel):
     crisis_id: str | None = None
     call_sid: str | None = None
 
+
+# -----------------------------
+# Global State
+# -----------------------------
+
 crisis_model = None
 crisis_engine = None
 
@@ -46,12 +58,18 @@ pending_decisions = {}
 completed_decisions = {}
 pending_decisions_lock = threading.Lock()
 
+
+# -----------------------------
+# Lifespan
+# -----------------------------
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global crisis_model, crisis_engine
     crisis_model = CrisisModel()
     crisis_engine = CrisisEngine(crisis_model)
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -66,6 +84,7 @@ app.add_middleware(
 # -----------------------------
 # Crisis Command
 # -----------------------------
+
 @app.post("/crisis_command", response_model=CrisisCommandResponse)
 async def crisis_command(request: CrisisCommandRequest):
 
@@ -91,7 +110,6 @@ async def crisis_command(request: CrisisCommandRequest):
         with pending_decisions_lock:
             pending_decisions[crisis_id] = {
                 "decision_output": result.get("decision_output", {}),
-                "call_sid": call_sid,
                 "timestamp": datetime.utcnow().isoformat()
             }
 
@@ -102,22 +120,13 @@ async def crisis_command(request: CrisisCommandRequest):
             "call_sid": call_sid
         }
 
-    if result["status"] == "EXECUTED":
-
-        execution_result = execute_dispatch(result["execution_result"])
-
-        return {
-            "status": "EXECUTED",
-            "execution_result": execution_result,
-            "alerts": result.get("alerts")
-        }
-
     return {"status": "UNKNOWN"}
 
 
 # -----------------------------
-# Voice
+# Voice (Approval Call)
 # -----------------------------
+
 @app.post("/voice")
 async def voice(crisis_id: str = Query(...)):
 
@@ -137,6 +146,7 @@ async def voice(crisis_id: str = Query(...)):
 # -----------------------------
 # Process Approval
 # -----------------------------
+
 @app.post("/process")
 async def process(request: Request, crisis_id: str = Query(...)):
 
@@ -150,10 +160,10 @@ async def process(request: Request, crisis_id: str = Query(...)):
             response.say("Crisis expired.")
             return Response(str(response), media_type="text/xml")
 
-        pending = pending_decisions[crisis_id]
-        decision_output = pending["decision_output"]
+        decision_output = pending_decisions[crisis_id]["decision_output"]
 
         if digit == "6":
+
             execution_result = execute_dispatch(decision_output)
 
             completed_decisions[crisis_id] = {
@@ -161,7 +171,14 @@ async def process(request: Request, crisis_id: str = Query(...)):
                 "execution_result": execution_result
             }
 
-            response.say("Approved. Units dispatched.")
+            # 🔥 CALL & SMS EMERGENCY TEAM IN BACKGROUND
+            threading.Thread(
+                target=notify_emergency_team,
+                args=(decision_output,),
+                daemon=True
+            ).start()
+
+            response.say("Approved. Units dispatched and emergency team notified.")
 
         else:
             completed_decisions[crisis_id] = {
@@ -176,8 +193,41 @@ async def process(request: Request, crisis_id: str = Query(...)):
 
 
 # -----------------------------
-# Crisis Status (NEW)
+# Emergency Notification
 # -----------------------------
+
+def notify_emergency_team(decision_output):
+
+    try:
+        crisis_type = decision_output["decisions"][0]["crisis_type"]
+        location = decision_output["decisions"][0]["location"]
+
+        message = f"Emergency alert. {crisis_type} reported at {location}. Prepare immediately."
+
+        print("Calling emergency team:", EMERGENCY_CONTACT)
+
+        # Call
+        twilio_client.calls.create(
+            twiml=f"<Response><Say>{message}</Say></Response>",
+            to=EMERGENCY_CONTACT,
+            from_=TWILIO_NUMBER
+        )
+
+        # SMS
+        twilio_client.messages.create(
+            body=message,
+            to=EMERGENCY_CONTACT,
+            from_=TWILIO_NUMBER
+        )
+
+    except Exception as e:
+        print("Emergency notification failed:", e)
+
+
+# -----------------------------
+# Crisis Status
+# -----------------------------
+
 @app.get("/crisis_status/{crisis_id}")
 async def crisis_status(crisis_id: str):
 
@@ -193,3 +243,11 @@ async def crisis_status(crisis_id: str):
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+# -----------------------------
+# Run
+# -----------------------------
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
