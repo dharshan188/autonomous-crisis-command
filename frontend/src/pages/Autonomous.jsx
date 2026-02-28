@@ -52,7 +52,7 @@ function Autonomous() {
         console.error(err);
       }
 
-    }, 10000); // 10 sec
+    }, 10000);
 
     return () => clearInterval(interval);
 
@@ -66,6 +66,7 @@ function Autonomous() {
     if (status === "SAFE") return "bg-green-600";
     if (status === "MONITORING") return "bg-yellow-500";
     if (status === "FLOOD_CALL_TRIGGERED") return "bg-red-600";
+    if (status === "ALREADY_PENDING") return "bg-orange-500";
     return "bg-gray-600";
   };
 
@@ -113,6 +114,7 @@ function Autonomous() {
 
           {data && (
             <>
+              {/* STATUS BADGE */}
               <div className="mb-4">
                 <span className={`px-4 py-1 rounded-full font-bold ${statusColor(data.status)}`}>
                   {data.status}
@@ -121,20 +123,22 @@ function Autonomous() {
 
               {/* LOCATION */}
               {data.location && (
-                <div>📍 Location: {data.location}</div>
+                <div className="mb-2">
+                  📍 <strong>Location:</strong> {data.location}
+                </div>
               )}
 
               {/* WEATHER */}
               {data.weather && (
-                <div className="mt-3 text-sm">
-                  <div>🌡 Temp: {data.weather.temperature}°C</div>
-                  <div>💧 Humidity: {data.weather.humidity}%</div>
-                  <div>🌧 Rain (1h): {data.weather.rain_1h || 0} mm</div>
-                  <div>🌬 Wind: {data.weather.wind_speed} m/s</div>
+                <div className="mt-3 text-sm bg-gray-800 p-4 rounded-lg">
+                  <div>🌡 Temp: {data.weather.temperature ?? "--"}°C</div>
+                  <div>💧 Humidity: {data.weather.humidity ?? "--"}%</div>
+                  <div>🌧 Rain (1h): {data.weather.rain_1h ?? 0} mm</div>
+                  <div>🌬 Wind: {data.weather.wind_speed ?? "--"} m/s</div>
                 </div>
               )}
 
-              {/* FLOOD CALL TRIGGERED */}
+              {/* FLOOD ALERT MESSAGE */}
               {data.status === "FLOOD_CALL_TRIGGERED" && (
                 <div className="mt-4 text-red-400 font-semibold">
                   🚨 Approval Call Triggered — Awaiting Officer Response
@@ -150,6 +154,40 @@ function Autonomous() {
               {data.status === "MONITORING" && (
                 <div className="mt-4 text-yellow-400">
                   ⚠ News Found — Monitoring Weather Conditions
+                </div>
+              )}
+
+              {data.status === "ALREADY_PENDING" && (
+                <div className="mt-4 text-orange-400">
+                  ⏳ Flood already under approval process
+                </div>
+              )}
+
+              {/* ========================= */}
+              {/* NEWS SOURCES (ONLY 2) */}
+              {/* ========================= */}
+
+              {data.sources && data.sources.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-semibold mb-2">
+                    📰 News Sources ({data.news_count || data.sources.length})
+                  </h4>
+
+                  {data.sources.slice(0, 2).map((source, index) => (
+                    <div
+                      key={index}
+                      className="mb-3 bg-gray-800 p-3 rounded-lg border border-gray-700"
+                    >
+                      <a
+                        href={source.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 underline text-sm"
+                      >
+                        {source.title}
+                      </a>
+                    </div>
+                  ))}
                 </div>
               )}
 

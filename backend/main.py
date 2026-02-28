@@ -20,7 +20,7 @@ from services.voice_service import (
     orchestrate_response
 )
 from services.autonomous_monitor import detect_flood
-from services.audit import get_audit_log, record_event
+from services.audit import get_audit_log
 from db import SessionLocal, create_tables, CrisisReport
 
 load_dotenv()
@@ -57,9 +57,8 @@ crisis_engine = None
 pending_decisions = {}
 pending_decisions_lock = threading.Lock()
 
-# Anti-duplicate autonomous alerts
+# Prevent duplicate autonomous calls
 active_autonomous_alerts = {}
-
 
 # =========================================================
 # LIFESPAN
@@ -96,7 +95,6 @@ async def crisis_command(request: CrisisCommandRequest):
         request.approved
     )
 
-    # If already executed
     if result["status"] != "PENDING_APPROVAL":
         return result
 
@@ -142,7 +140,7 @@ async def autonomous_scan(request: AutonomousRequest):
 
     result = detect_flood(request.location)
 
-    # Always return structured SAFE / MONITORING response
+    # SAFE / MONITORING
     if result["status"] != "FLOOD_DETECTED":
         return {
             "status": result.get("status"),
@@ -150,7 +148,8 @@ async def autonomous_scan(request: AutonomousRequest):
             "weather": result.get("weather", {}),
             "message": result.get("message"),
             "rule_reason": result.get("rule_reason"),
-            "news_count": result.get("news_count")
+            "news_count": result.get("news_count"),
+            "sources": result.get("sources", [])
         }
 
     location_key = result["location"]
@@ -161,7 +160,8 @@ async def autonomous_scan(request: AutonomousRequest):
             "status": "ALREADY_PENDING",
             "location": location_key,
             "weather": result.get("weather"),
-            "message": "Flood already under approval"
+            "message": "Flood already under approval",
+            "sources": result.get("sources", [])
         }
 
     crisis_id = str(uuid4())
@@ -203,7 +203,9 @@ async def autonomous_scan(request: AutonomousRequest):
         "call_sid": call_sid,
         "location": location_key,
         "weather": result.get("weather"),
-        "rule_reason": result.get("rule_reason")
+        "rule_reason": result.get("rule_reason"),
+        "news_count": result.get("news_count"),
+        "sources": result.get("sources", [])
     }
 
 
@@ -296,7 +298,7 @@ async def process(request: Request, crisis_id: str = Query(None)):
 
 
 # =========================================================
-# 📊 STATUS + REPORT
+# 📊 STATUS + HEALTH
 # =========================================================
 
 @app.get("/crisis_status/{crisis_id}")
