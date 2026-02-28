@@ -7,7 +7,6 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
 from uuid import uuid4
 from datetime import datetime
@@ -15,19 +14,16 @@ from datetime import datetime
 from ai_model import CrisisModel
 from crisis_engine import CrisisEngine
 from services.dispatcher import execute_dispatch
+from services.voice_service import (
+    trigger_approval_call,
+    orchestrate_response
+)
 
 load_dotenv()
 
-TWILIO_SID = os.getenv("TWILIO_SID")
-TWILIO_AUTH = os.getenv("TWILIO_AUTH")
-TWILIO_NUMBER = os.getenv("TWILIO_NUMBER")
 OFFICER_NUMBER = os.getenv("OFFICER_NUMBER")
 PUBLIC_URL = os.getenv("PUBLIC_URL")
 
-twilio_client = Client(TWILIO_SID, TWILIO_AUTH)
-
-# 👇 This is the emergency responder number
-EMERGENCY_CONTACT = "+919363948181"
 
 # -----------------------------
 # Models
@@ -81,6 +77,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # -----------------------------
 # Crisis Command
 # -----------------------------
@@ -98,12 +95,11 @@ async def crisis_command(request: CrisisCommandRequest):
         crisis_id = str(uuid4())
 
         try:
-            call = twilio_client.calls.create(
-                url=f"{PUBLIC_URL}/voice?crisis_id={crisis_id}",
-                to=OFFICER_NUMBER,
-                from_=TWILIO_NUMBER
+            call_sid = trigger_approval_call(
+                OFFICER_NUMBER,
+                PUBLIC_URL,
+                crisis_id
             )
-            call_sid = call.sid
         except Exception:
             call_sid = f"SIM-{uuid4()}"
 
@@ -171,14 +167,17 @@ async def process(request: Request, crisis_id: str = Query(...)):
                 "execution_result": execution_result
             }
 
-            # 🔥 CALL & SMS EMERGENCY TEAM IN BACKGROUND
+            # 🔥 MULTI-TEAM ORCHESTRATION
+            crisis_type = decision_output["decisions"][0]["crisis_type"]
+            location = decision_output["decisions"][0]["location"]
+
             threading.Thread(
-                target=notify_emergency_team,
-                args=(decision_output,),
+                target=orchestrate_response,
+                args=(crisis_type, location, 25),
                 daemon=True
             ).start()
 
-            response.say("Approved. Units dispatched and emergency team notified.")
+            response.say("Approved. Units dispatched and emergency teams notified.")
 
         else:
             completed_decisions[crisis_id] = {
@@ -190,38 +189,6 @@ async def process(request: Request, crisis_id: str = Query(...)):
         del pending_decisions[crisis_id]
 
     return Response(str(response), media_type="text/xml")
-
-
-# -----------------------------
-# Emergency Notification
-# -----------------------------
-
-def notify_emergency_team(decision_output):
-
-    try:
-        crisis_type = decision_output["decisions"][0]["crisis_type"]
-        location = decision_output["decisions"][0]["location"]
-
-        message = f"Emergency alert. {crisis_type} reported at {location}. Prepare immediately."
-
-        print("Calling emergency team:", EMERGENCY_CONTACT)
-
-        # Call
-        twilio_client.calls.create(
-            twiml=f"<Response><Say>{message}</Say></Response>",
-            to=EMERGENCY_CONTACT,
-            from_=TWILIO_NUMBER
-        )
-
-        # SMS
-        twilio_client.messages.create(
-            body=message,
-            to=EMERGENCY_CONTACT,
-            from_=TWILIO_NUMBER
-        )
-
-    except Exception as e:
-        print("Emergency notification failed:", e)
 
 
 # -----------------------------
