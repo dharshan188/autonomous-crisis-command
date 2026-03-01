@@ -5,6 +5,7 @@ from services.resolver import resolve_conflicts
 from services.dispatcher import execute_dispatch
 from services.surveillance import surveillance_monitor
 from services.audit import record_event
+from services.nearby_services import find_nearby_services
 
 
 class CrisisEngine:
@@ -16,7 +17,6 @@ class CrisisEngine:
     def __init__(self, crisis_model: CrisisModel):
         self.model = crisis_model
 
-        # Standardized resource pool
         self.resource_pool = {
             "Fire": 2,
             "Flood": 2,
@@ -28,6 +28,7 @@ class CrisisEngine:
     # -------------------------
     # Crisis Type Normalization
     # -------------------------
+
     def normalize_type(self, crisis_type: str) -> str:
 
         if not crisis_type:
@@ -53,6 +54,7 @@ class CrisisEngine:
     # -------------------------
     # Main Pipeline
     # -------------------------
+
     def process_crises(self, crisis_texts: list, approved: bool) -> dict:
 
         crises = []
@@ -62,7 +64,6 @@ class CrisisEngine:
 
             crisis_data = self.model.extract_crisis(text)
 
-            # Fallback if AI fails
             if not isinstance(crisis_data, dict):
                 crisis_data = {
                     "crisis_type": "Unknown",
@@ -70,7 +71,6 @@ class CrisisEngine:
                     "severity": "Low"
                 }
 
-            # Normalize crisis type
             normalized = self.normalize_type(
                 crisis_data.get("crisis_type", "")
             )
@@ -82,17 +82,30 @@ class CrisisEngine:
             # STEP 2: Risk scoring
             crisis_data["risk_score"] = calculate_risk(crisis_data)
 
+            # ------------------------------------------------
+            # 🔥 STEP 3: SAFE Nearby Lookup (DO NOT BREAK FLOW)
+            # ------------------------------------------------
+            try:
+                if crisis_data.get("location") and crisis_data["location"] != "Unknown":
+                    nearby = find_nearby_services(crisis_data["location"])
+                    crisis_data["nearby_units"] = nearby
+                else:
+                    crisis_data["nearby_units"] = []
+            except Exception as e:
+                print("NEARBY LOOKUP ERROR:", str(e))
+                crisis_data["nearby_units"] = []
+
             crises.append(crisis_data)
 
         print("PROCESSED CRISES:", crises)
 
-        # STEP 3: Audit
+        # STEP 4: Audit
         record_event("CRISIS_RECEIVED", {
             "count": len(crises),
             "crises": crises
         })
 
-        # STEP 4: Resource Allocation
+        # STEP 5: Resource Allocation
         decision_output = resolve_conflicts(crises, self.resource_pool)
 
         print("DECISION OUTPUT:", decision_output)
@@ -103,24 +116,22 @@ class CrisisEngine:
         })
 
         # ---------------------------------
-        # STEP 5: Approval Check
+        # STEP 6: Approval Check
         # ---------------------------------
 
-        # All crisis responses require human approval before dispatch
-        approval_required_cases = [
-            d for d in decision_output["decisions"]
-            if d.get("risk_score", 0) >= 1
-        ]
-
-        # If no allocation happened, return gracefully
         if not decision_output["decisions"]:
             return {
                 "status": "NO_RESOURCES",
                 "details": decision_output["tradeoffs"]
             }
 
-        # Approval required for all cases
+        approval_required_cases = [
+            d for d in decision_output["decisions"]
+            if d.get("risk_score", 0) >= 1
+        ]
+
         if approval_required_cases and not approved:
+
             record_event("AUTHORIZATION_REQUIRED", {
                 "approval_required_count": len(approval_required_cases),
                 "cases": approval_required_cases
@@ -133,7 +144,7 @@ class CrisisEngine:
             }
 
         # ---------------------------------
-        # STEP 6: Auto Execution
+        # STEP 7: Execute
         # ---------------------------------
 
         execution_result = execute_dispatch(decision_output)

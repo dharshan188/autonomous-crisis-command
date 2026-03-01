@@ -2,9 +2,9 @@ import uvicorn
 import os
 import threading
 import json
-from fastapi import FastAPI, Request, Query
-from fastapi.responses import Response
-from starlette.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request, Query, HTTPException
+from fastapi.responses import Response, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -15,13 +15,12 @@ from datetime import datetime
 from ai_model import CrisisModel
 from crisis_engine import CrisisEngine
 from services.dispatcher import execute_dispatch
-from services.voice_service import (
-    trigger_approval_call,
-    orchestrate_response
-)
+from services.voice_service import trigger_approval_call, orchestrate_response
 from services.autonomous_monitor import detect_flood
 from services.audit import get_audit_log
 from db import SessionLocal, create_tables, CrisisReport
+
+from generate_report import generate_comprehensive_report
 
 load_dotenv()
 
@@ -56,8 +55,6 @@ crisis_model = None
 crisis_engine = None
 pending_decisions = {}
 pending_decisions_lock = threading.Lock()
-
-# Prevent duplicate autonomous calls
 active_autonomous_alerts = {}
 
 # =========================================================
@@ -75,16 +72,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# =========================================================
+# CORS
+# =========================================================
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # =========================================================
-# 🔥 MANUAL MODE
+# MANUAL MODE
 # =========================================================
 
 @app.post("/crisis_command", response_model=CrisisCommandResponse)
@@ -130,9 +134,8 @@ async def crisis_command(request: CrisisCommandRequest):
         "call_sid": call_sid
     }
 
-
 # =========================================================
-# 🌊 AUTONOMOUS MODE
+# AUTONOMOUS MODE
 # =========================================================
 
 @app.post("/autonomous_scan")
@@ -140,29 +143,13 @@ async def autonomous_scan(request: AutonomousRequest):
 
     result = detect_flood(request.location)
 
-    # SAFE / MONITORING
     if result["status"] != "FLOOD_DETECTED":
-        return {
-            "status": result.get("status"),
-            "location": request.location,
-            "weather": result.get("weather", {}),
-            "message": result.get("message"),
-            "rule_reason": result.get("rule_reason"),
-            "news_count": result.get("news_count"),
-            "sources": result.get("sources", [])
-        }
+        return result
 
     location_key = result["location"]
 
-    # Prevent duplicate flood calls
     if location_key in active_autonomous_alerts:
-        return {
-            "status": "ALREADY_PENDING",
-            "location": location_key,
-            "weather": result.get("weather"),
-            "message": "Flood already under approval",
-            "sources": result.get("sources", [])
-        }
+        return {"status": "ALREADY_PENDING", "location": location_key}
 
     crisis_id = str(uuid4())
     active_autonomous_alerts[location_key] = crisis_id
@@ -201,16 +188,11 @@ async def autonomous_scan(request: AutonomousRequest):
         "status": "FLOOD_CALL_TRIGGERED",
         "crisis_id": crisis_id,
         "call_sid": call_sid,
-        "location": location_key,
-        "weather": result.get("weather"),
-        "rule_reason": result.get("rule_reason"),
-        "news_count": result.get("news_count"),
-        "sources": result.get("sources", [])
+        "location": location_key
     }
 
-
 # =========================================================
-# 📞 VOICE ENDPOINT
+# VOICE
 # =========================================================
 
 @app.api_route("/voice", methods=["GET", "POST"])
@@ -227,9 +209,8 @@ async def voice(crisis_id: str = Query(None)):
 
     return Response(str(response), media_type="text/xml")
 
-
 # =========================================================
-# 🔥 PROCESS APPROVAL
+# PROCESS APPROVAL
 # =========================================================
 
 @app.api_route("/process", methods=["GET", "POST"])
@@ -260,7 +241,6 @@ async def process(request: Request, crisis_id: str = Query(None)):
             crisis_type = decision_output["decisions"][0]["crisis_type"]
             location = decision_output["decisions"][0]["location"]
 
-            # Forward to teams
             threading.Thread(
                 target=orchestrate_response,
                 args=(crisis_type, location, 25),
@@ -271,12 +251,16 @@ async def process(request: Request, crisis_id: str = Query(None)):
                 report.approval_status = "APPROVED"
                 report.approval_time = datetime.now()
                 report.dispatch_time = datetime.now()
+
+                # 🔥 Generate report AND store path
+                file_path = generate_comprehensive_report(crisis_id)
+                report.report_path = file_path
+
                 session.commit()
 
             response.say("Approved. Emergency teams notified.")
 
         else:
-
             if report:
                 report.approval_status = "REJECTED"
                 report.approval_time = datetime.now()
@@ -284,10 +268,8 @@ async def process(request: Request, crisis_id: str = Query(None)):
 
             response.say("Rejected.")
 
-        # Cleanup
         del pending_decisions[crisis_id]
 
-        # Remove from autonomous lock
         for loc, cid in list(active_autonomous_alerts.items()):
             if cid == crisis_id:
                 del active_autonomous_alerts[loc]
@@ -296,9 +278,8 @@ async def process(request: Request, crisis_id: str = Query(None)):
 
     return Response(str(response), media_type="text/xml")
 
-
 # =========================================================
-# 📊 STATUS + HEALTH
+# STATUS + REPORT ENDPOINT
 # =========================================================
 
 @app.get("/crisis_status/{crisis_id}")
@@ -306,9 +287,30 @@ async def crisis_status(crisis_id: str):
     session = SessionLocal()
     report = session.query(CrisisReport).filter_by(crisis_id=crisis_id).first()
     session.close()
+
     if not report:
         return {"status": "NOT_FOUND"}
+
     return {"status": report.approval_status}
+
+
+@app.get("/crisis_report/{crisis_id}")
+async def crisis_report(crisis_id: str):
+    session = SessionLocal()
+    report = session.query(CrisisReport).filter_by(crisis_id=crisis_id).first()
+    session.close()
+
+    if not report or not report.report_path:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if not os.path.exists(report.report_path):
+        raise HTTPException(status_code=404, detail="File missing")
+
+    return FileResponse(
+        report.report_path,
+        media_type="application/pdf",
+        filename=os.path.basename(report.report_path)
+    )
 
 
 @app.get("/audit_log")
@@ -320,10 +322,6 @@ async def audit_log_endpoint():
 async def health():
     return {"status": "healthy"}
 
-
-# =========================================================
-# 🚀 RUN
-# =========================================================
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

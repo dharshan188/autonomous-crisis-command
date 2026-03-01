@@ -7,17 +7,8 @@ import {
 
 function NewCrisis() {
 
-  // ============================
-  // MODE STATE
-  // ============================
-
-  const [mode, setMode] = useState("manual"); // manual | autonomous
-
-  // ============================
-  // MANUAL STATE
-  // ============================
-
   const [crisisText, setCrisisText] = useState("");
+  const [location, setLocation] = useState("");
   const [approved, setApproved] = useState(false);
   const [response, setResponse] = useState(null);
   const [report, setReport] = useState(null);
@@ -25,21 +16,12 @@ function NewCrisis() {
   const [error, setError] = useState(null);
   const [crisisId, setCrisisId] = useState(null);
 
-  // ============================
-  // AUTONOMOUS STATE
-  // ============================
-
-  const [location, setLocation] = useState("");
-  const [autoResult, setAutoResult] = useState(null);
-  const [autoLoading, setAutoLoading] = useState(false);
-
-  // ============================
-  // MANUAL SUBMIT
-  // ============================
-
+  // -----------------------------
+  // Submit Crisis
+  // -----------------------------
   const sendCrisis = async () => {
 
-    if (!crisisText) return;
+    if (!crisisText || !location) return;
 
     setLoading(true);
     setResponse(null);
@@ -48,7 +30,13 @@ function NewCrisis() {
     setCrisisId(null);
 
     try {
-      const data = await submitCrisis(crisisText, approved);
+
+      const data = await submitCrisis({
+        description: crisisText,
+        location: location,
+        approved: approved
+      });
+
       setResponse(data);
 
       if (data.crisis_id) {
@@ -56,50 +44,16 @@ function NewCrisis() {
       }
 
     } catch (err) {
-      setError(err?.message || "Request failed");
+      console.error(err);
+      setError("Backend not reachable. Is server running?");
     } finally {
       setLoading(false);
     }
   };
 
-  // ============================
-  // AUTONOMOUS SCAN
-  // ============================
-
-  const scanAutonomous = async () => {
-
-    if (!location) return;
-
-    setAutoLoading(true);
-    setAutoResult(null);
-
-    try {
-
-      const res = await fetch("http://127.0.0.1:8000/autonomous_scan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ location })
-      });
-
-      const data = await res.json();
-      setAutoResult(data);
-
-    } catch (err) {
-      setAutoResult({
-        status: "ERROR",
-        message: "Autonomous scan failed"
-      });
-    } finally {
-      setAutoLoading(false);
-    }
-  };
-
-  // ============================
-  // POLLING MANUAL STATUS
-  // ============================
-
+  // -----------------------------
+  // Poll Status
+  // -----------------------------
   useEffect(() => {
 
     if (!crisisId) return;
@@ -110,15 +64,16 @@ function NewCrisis() {
 
         const status = await getCrisisStatus(crisisId);
 
-        if (
-          status.status === "EXECUTED" ||
-          status.status === "REJECTED"
-        ) {
-          setResponse(status);
+        if (status.status === "APPROVED" ||
+            status.status === "EXECUTED" ||
+            status.status === "REJECTED") {
 
           const fullReport = await getCrisisReport(crisisId);
           setReport(fullReport);
+        }
 
+        if (status.status === "EXECUTED" ||
+            status.status === "REJECTED") {
           clearInterval(interval);
         }
 
@@ -132,151 +87,149 @@ function NewCrisis() {
 
   }, [crisisId]);
 
+  // -----------------------------
+  // Status Colors
+  // -----------------------------
   const statusColor = (status) => {
     if (status === "EXECUTED") return "bg-green-600";
-    if (status === "CALL_TRIGGERED") return "bg-yellow-500";
+    if (status === "APPROVED") return "bg-blue-600";
+    if (status === "CALL_TRIGGERED" || status === "PENDING_APPROVAL")
+      return "bg-yellow-500";
     if (status === "REJECTED") return "bg-red-600";
     return "bg-gray-600";
   };
 
   return (
-    <div className="p-10 text-gray-200 text-base">
+    <div className="min-h-screen bg-gray-950 text-gray-200">
 
-      {/* ================= MODE TOGGLE ================= */}
-
-      <div className="mb-6 flex gap-4">
-        <button
-          onClick={() => setMode("manual")}
-          className={`px-6 py-2 rounded-lg ${
-            mode === "manual" ? "bg-blue-600" : "bg-gray-700"
-          }`}
-        >
-          Manual Mode
-        </button>
-
-        <button
-          onClick={() => setMode("autonomous")}
-          className={`px-6 py-2 rounded-lg ${
-            mode === "autonomous" ? "bg-purple-600" : "bg-gray-700"
-          }`}
-        >
-          Autonomous Mode
-        </button>
+      {/* HEADER */}
+      <div className="flex justify-between items-center px-10 py-6 border-b border-gray-800">
+        <h2 className="text-2xl font-bold text-white">
+          Crisis Command Center
+        </h2>
       </div>
 
-      {/* ================= MANUAL ================= */}
+      {/* MAIN CONTENT */}
+      <div className="p-10 grid grid-cols-2 gap-8">
 
-      {mode === "manual" && (
-        <div className="grid grid-cols-2 gap-8">
+        {/* LEFT PANEL */}
+        <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
 
-          {/* LEFT PANEL */}
-
-          <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
-
-            <h3 className="font-semibold mb-4 text-xl text-white">
-              Crisis Deployment Interface
-            </h3>
-
-            <textarea
-              className="w-full p-3 bg-gray-800 rounded-lg mb-4 text-white"
-              rows="5"
-              placeholder="Describe the crisis situation..."
-              value={crisisText}
-              onChange={(e) => setCrisisText(e.target.value)}
-            />
-
-            <div className="flex justify-between items-center">
-
-              <label className="flex items-center gap-2 text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={approved}
-                  onChange={() => setApproved(!approved)}
-                />
-                Executive Pre-Authorization Enabled
-              </label>
-
-              <button
-                onClick={sendCrisis}
-                className="bg-blue-600 px-6 py-2 rounded-lg hover:bg-blue-700 transition"
-              >
-                {loading ? "Processing..." : "Execute AI Resolution"}
-              </button>
-
-            </div>
-          </div>
-
-          {/* RIGHT PANEL */}
-
-          <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
-
-            <h3 className="font-semibold mb-4 text-xl text-white">
-              Live Crisis Report
-            </h3>
-
-            {!response && <p className="text-gray-500">Awaiting input...</p>}
-
-            {response && (
-              <>
-                <div className="mb-4">
-                  <span className={`px-4 py-1 rounded-full font-bold ${statusColor(response.status)}`}>
-                    {response.status}
-                  </span>
-                </div>
-
-                {crisisId && (
-                  <div className="text-sm text-gray-400">
-                    Crisis ID: {crisisId}
-                  </div>
-                )}
-
-                {report && (
-                  <div className="mt-4 text-sm">
-                    <div>📌 Submitted: {report.submitted_at}</div>
-                    <div>📞 Approval Status: {report.approval_status}</div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ================= AUTONOMOUS ================= */}
-
-      {mode === "autonomous" && (
-        <div className="bg-gray-900 p-8 rounded-2xl border border-gray-800 shadow-lg">
-
-          <h3 className="text-xl font-semibold mb-6">
-            Autonomous Disaster Monitoring
+          <h3 className="font-semibold mb-4 text-xl text-white">
+            Crisis Deployment Interface
           </h3>
 
           <input
             type="text"
-            placeholder="Enter location (e.g. Sydney)"
+            placeholder="Enter precise location (Area, City)"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            className="w-full p-3 bg-gray-800 rounded-lg mb-4"
+            className="w-full p-3 bg-gray-800 rounded-lg mb-4 text-white"
           />
 
-          <button
-            onClick={scanAutonomous}
-            className="bg-purple-600 px-6 py-2 rounded-lg hover:bg-purple-700 transition"
-          >
-            {autoLoading ? "Scanning..." : "Scan Disaster"}
-          </button>
+          <textarea
+            className="w-full p-3 bg-gray-800 rounded-lg mb-4 text-white"
+            rows="5"
+            placeholder="Describe the crisis..."
+            value={crisisText}
+            onChange={(e) => setCrisisText(e.target.value)}
+          />
 
-          {autoResult && (
-            <div className="mt-6 p-4 bg-gray-800 rounded-lg text-sm">
-              <div className="font-bold mb-2">{autoResult.status}</div>
-              <pre className="whitespace-pre-wrap">
-                {JSON.stringify(autoResult, null, 2)}
-              </pre>
+          <div className="flex justify-between items-center">
+
+            <label className="flex items-center gap-2 text-gray-300">
+              <input
+                type="checkbox"
+                checked={approved}
+                onChange={() => setApproved(!approved)}
+              />
+              Executive Pre-Authorization
+            </label>
+
+            <button
+              onClick={sendCrisis}
+              disabled={!crisisText || !location}
+              className="bg-blue-600 px-6 py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {loading ? "Processing..." : "Execute AI Resolution"}
+            </button>
+
+          </div>
+
+          {error && (
+            <div className="text-red-400 mt-3 text-sm">
+              {error}
             </div>
           )}
-        </div>
-      )}
 
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div className="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-lg">
+
+          <h3 className="font-semibold mb-4 text-xl text-white">
+            Live Crisis Report
+          </h3>
+
+          {!response && <p className="text-gray-500">Awaiting input...</p>}
+
+          {response && (
+            <>
+              <div className="mb-4">
+                <span className={`px-4 py-1 rounded-full font-bold ${statusColor(response.status)}`}>
+                  {response.status}
+                </span>
+              </div>
+
+              {response.details && response.details[0] && (
+                <div className="mt-4 text-sm space-y-2">
+
+                  <div>📍 Location: {response.details[0].location}</div>
+                  <div>⚠ Risk Score: {response.details[0].risk_score}</div>
+
+                  {/* 🔥 Nearby Units Section */}
+                  {response.details[0].nearby_units &&
+                    response.details[0].nearby_units.length > 0 && (
+                    <div className="mt-4">
+                      <div className="font-semibold text-white mb-2">
+                        Nearby Emergency Units
+                      </div>
+
+                      {response.details[0].nearby_units.map((unit, index) => (
+                        <div
+                          key={index}
+                          className="bg-gray-800 p-3 rounded mb-2"
+                        >
+                          <div className="font-medium">
+                            🚨 {unit.type?.toUpperCase()}
+                          </div>
+                          <div>{unit.name}</div>
+                          <div>📍 {unit.distance_km} km</div>
+                          <div>⏱ ETA: {unit.eta_minutes} mins</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+              {report && (
+                <div className="mt-6 text-sm border-t border-gray-700 pt-4">
+                  <div>📌 Submitted: {report.submitted_at}</div>
+                  <div>📞 Approval Status: {report.approval_status}</div>
+
+                  {report.dispatch_time && (
+                    <div>🚒 Dispatch Time: {report.dispatch_time}</div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+        </div>
+
+      </div>
     </div>
   );
 }

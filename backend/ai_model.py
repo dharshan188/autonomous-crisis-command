@@ -2,7 +2,6 @@ import os
 import json
 from groq import Groq
 from dotenv import load_dotenv
-from groq import Groq
 
 load_dotenv()
 
@@ -15,10 +14,14 @@ class CrisisModel:
 
         self.client = Groq(api_key=api_key)
 
+    # =====================================================
+    # MAIN EXTRACTION
+    # =====================================================
+
     def extract_crisis(self, text: str) -> dict:
         try:
             response = self.client.chat.completions.create(
-                model="llama-3.1-8b-instant",  # ✅ ACTIVE MODEL
+                model="llama-3.1-8b-instant",
                 temperature=0.1,
                 response_format={"type": "json_object"},
                 messages=[
@@ -49,11 +52,20 @@ crisis_type, location, severity, risk_factor.
 
             data = json.loads(content)
 
+            # -----------------------------
+            # SAFE FIELD HANDLING
+            # -----------------------------
+
+            crisis_type = data.get("crisis_type") or ""
+            location = data.get("location") or "Unknown"
+            severity = data.get("severity") or ""
+            risk_factor = data.get("risk_factor") or "Not specified"
+
             cleaned = {
-                "crisis_type": self._normalize_type(data.get("crisis_type", "")),
-                "location": data.get("location", "Unknown").strip(),
-                "severity": self._normalize_severity(data.get("severity", "")),
-                "risk_factor": data.get("risk_factor", "Unknown").strip(),
+                "crisis_type": self._normalize_type(crisis_type),
+                "location": location.strip(),
+                "severity": self._normalize_severity(severity),
+                "risk_factor": risk_factor.strip(),
             }
 
             return cleaned
@@ -62,9 +74,9 @@ crisis_type, location, severity, risk_factor.
             print("GROQ ERROR:", str(e))
             return self._fallback("Groq request failed")
 
-    # -------------------------
-    # Helpers
-    # -------------------------
+    # =====================================================
+    # HELPERS
+    # =====================================================
 
     def _normalize_severity(self, value: str) -> str:
         value = value.lower()

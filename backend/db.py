@@ -22,7 +22,7 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},  # needed for FastAPI + SQLite
+    connect_args={"check_same_thread": False},
 )
 
 SessionLocal = sessionmaker(
@@ -51,7 +51,7 @@ class CrisisReport(Base):
         default=datetime.now
     )
 
-    approval_status = Column(String, nullable=False)  # PENDING / APPROVED / REJECTED
+    approval_status = Column(String, nullable=False)
 
     approval_time = Column(DateTime, nullable=True)
 
@@ -62,6 +62,9 @@ class CrisisReport(Base):
         nullable=False,
         default="[]"
     )
+
+    # 🔥 ADD THIS FIELD
+    report_path = Column(String, nullable=True)
 
     # =============================
     # Convert to JSON-safe dict
@@ -76,6 +79,7 @@ class CrisisReport(Base):
             "approval_time": self.approval_time.isoformat() if self.approval_time else None,
             "dispatch_time": self.dispatch_time.isoformat() if self.dispatch_time else None,
             "teams_notified": json.loads(self.teams_notified or "[]"),
+            "report_path": self.report_path,
         }
 
 
