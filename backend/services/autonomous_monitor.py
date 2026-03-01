@@ -1,103 +1,143 @@
 """
-AUTONOMOUS FLOOD MONITOR v7 (STABLE)
-Accurate Area Detection + News Sources + Live Weather
+AUTONOMOUS FLOOD MONITOR v8
+Stable + Real News Links + Live Weather + Smart Location
+Includes:
+- Temperature
+- Rain (last 1 hour)
+- Humidity
+- Wind speed
+- Top 2 news articles
 """
 
 import requests
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone, timedelta
-from email.utils import parsedate_to_datetime
 import spacy
+from datetime import datetime
 from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-import os
-from dotenv import load_dotenv
 
-# ─────────────────────────────────────────
-# LOAD ENV
-# ─────────────────────────────────────────
-
-load_dotenv()
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 # ─────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────
 
-TIME_WINDOW_HOURS = 48
-CONFIRMATION_THRESHOLD = 1
-STRONG_NEWS_THRESHOLD = 3
-
 FLOOD_KEYWORDS = [
     "flood", "flooded", "flooding",
-    "flash flood",
-    "heavy rain", "heavy rainfall",
-    "inundated", "waterlogging"
+    "waterlogging", "heavy rain",
+    "overflow", "inundated"
 ]
 
+RAIN_THRESHOLD_MM = 15  # rain trigger in 1 hour
+
+
 # ─────────────────────────────────────────
-# NLP + GEO
+# NLP + GEOCODER
 # ─────────────────────────────────────────
 
 nlp = spacy.load("en_core_web_sm")
-geocoder = Nominatim(user_agent="autonomous_crisis_monitor_v7", timeout=10)
+geocoder = Nominatim(user_agent="flood_monitor_v8", timeout=10)
+
 
 # ─────────────────────────────────────────
-# NEWS FETCH
+# LOCATION EXTRACTION
 # ─────────────────────────────────────────
 
-def fetch_news(query):
+def extract_location(text):
+    doc = nlp(text)
+    for ent in doc.ents:
+        if ent.label_ in ("GPE", "LOC"):
+            return ent.text
+    return text  # fallback
+
+
+def geocode_location(name):
     try:
-        url = (
-            "https://news.google.com/rss/search?"
-            f"q={requests.utils.quote(query)}"
-            "&hl=en-US&gl=US&ceid=US:en"
-        )
+        location = geocoder.geocode(name)
+        if location:
+            return location.latitude, location.longitude
+    except Exception as e:
+        print("Geocode error:", e)
+    return None, None
 
-        response = requests.get(
-            url,
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
 
-        response.raise_for_status()
-        return response.text
+# ─────────────────────────────────────────
+# LIVE WEATHER (Open-Meteo – Free API)
+# ─────────────────────────────────────────
+
+def get_weather(lat, lon):
+    try:
+        url = "https://api.open-meteo.com/v1/forecast"
+
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current": "temperature_2m,relative_humidity_2m,wind_speed_10m",
+            "hourly": "precipitation",
+            "forecast_days": 1
+        }
+
+        res = requests.get(url, params=params, timeout=5)
+        data = res.json()
+
+        current = data.get("current", {})
+        hourly = data.get("hourly", {})
+
+        rain_last_hour = 0
+        if "precipitation" in hourly and len(hourly["precipitation"]) > 0:
+            rain_last_hour = hourly["precipitation"][0]
+
+        return {
+            "temperature_c": current.get("temperature_2m"),
+            "humidity_percent": current.get("relative_humidity_2m"),
+            "wind_kmh": current.get("wind_speed_10m"),
+            "rain_last_1h_mm": rain_last_hour
+        }
 
     except Exception as e:
-        print("NEWS FETCH ERROR:", e)
-        return None
+        print("Weather error:", e)
+        return {}
 
 
-def parse_rss(xml):
-    if not xml:
+# ─────────────────────────────────────────
+# GOOGLE NEWS RSS (Top 2)
+# ─────────────────────────────────────────
+
+def fetch_news(location):
+
+    rss_url = (
+        f"https://news.google.com/rss/search?"
+        f"q={location}+flood&hl=en-IN&gl=IN&ceid=IN:en"
+    )
+
+    try:
+        response = requests.get(
+            rss_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=5
+        )
+
+        return parse_rss(response.text)
+
+    except Exception as e:
+        print("News fetch error:", e)
         return []
 
-    root = ET.fromstring(xml)
-    now = datetime.now(timezone.utc)
+
+def parse_rss(xml_data):
+
+    try:
+        root = ET.fromstring(xml_data)
+    except Exception as e:
+        print("RSS parse error:", e)
+        return []
+
     articles = []
 
     for item in root.findall(".//item"):
 
         title = item.findtext("title", "").strip()
-        link = item.findtext("link", "")
-        guid = item.findtext("guid", "")
-        pub_date = item.findtext("pubDate")
+        link = item.findtext("link", "").strip()
 
-        if not pub_date:
-            continue
-
-        try:
-            pub_time = parsedate_to_datetime(pub_date)
-        except:
-            continue
-
-        if now - pub_time > timedelta(hours=TIME_WINDOW_HOURS):
-            continue
-
-        if not link and guid.startswith("http"):
-            link = guid
-
-        if not link:
+        if not link.startswith("http"):
             continue
 
         articles.append({
@@ -105,159 +145,57 @@ def parse_rss(xml):
             "link": link
         })
 
-    return articles
+    return articles[:2]   # 🔥 ONLY TOP 2
+
 
 # ─────────────────────────────────────────
-# WEATHER
+# MAIN FLOOD DETECTION
 # ─────────────────────────────────────────
 
-def get_weather(lat, lon):
+def detect_flood(text: str):
 
-    if not OPENWEATHER_API_KEY:
-        return {}
+    location = extract_location(text)
+    lat, lon = geocode_location(location)
 
-    try:
-        url = (
-            "https://api.openweathermap.org/data/2.5/weather"
-            f"?lat={lat}&lon={lon}"
-            f"&appid={OPENWEATHER_API_KEY}"
-            "&units=metric"
-        )
-
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
+    if not lat:
         return {
-            "temperature": data.get("main", {}).get("temp"),
-            "humidity": data.get("main", {}).get("humidity"),
-            "wind_speed": data.get("wind", {}).get("speed"),
-            "rain_1h": data.get("rain", {}).get("1h", 0),
-            "description": data.get("weather", [{}])[0].get("description")
+            "status": "NO_FLOOD",
+            "reason": "Location not found"
         }
 
-    except Exception as e:
-        print("WEATHER FETCH ERROR:", e)
-        return {}
+    weather_data = get_weather(lat, lon)
+    news_articles = fetch_news(location)
 
-# ─────────────────────────────────────────
-# GEO LOCATION
-# ─────────────────────────────────────────
+    print("News Articles:", news_articles)
 
-def geocode_location(name):
-    try:
-        location = geocoder.geocode(name)
-        if not location:
-            return None
-        return location.latitude, location.longitude
-    except (GeocoderTimedOut, GeocoderServiceError) as e:
-        print("GEOCODE ERROR:", e)
-        return None
+    keyword_trigger = any(
+        keyword in text.lower()
+        for keyword in FLOOD_KEYWORDS
+    )
 
-# ─────────────────────────────────────────
-# RULE ENGINE
-# ─────────────────────────────────────────
+    heavy_rain = weather_data.get("rain_last_1h_mm", 0) > RAIN_THRESHOLD_MM
+    strong_news = len(news_articles) >= 1
 
-def evaluate_flood(weather, news_count):
-
-    rain = weather.get("rain_1h", 0)
-
-    if news_count >= STRONG_NEWS_THRESHOLD:
-        return True, "Multiple confirmed flood reports"
-
-    if rain and rain >= 2:
-        return True, "Rainfall anomaly detected"
-
-    return False, "Monitoring rainfall levels"
-
-# ─────────────────────────────────────────
-# EXTRACT MOST SPECIFIC LOCATION
-# ─────────────────────────────────────────
-
-def extract_precise_location(matches, fallback_state):
-
-    for article in matches:
-        doc = nlp(article["title"])
-        for ent in doc.ents:
-            if ent.label_ == "GPE":
-                if fallback_state and fallback_state.lower() not in ent.text.lower():
-                    return ent.text
-
-    return fallback_state
-
-# ─────────────────────────────────────────
-# MAIN DETECTION
-# ─────────────────────────────────────────
-
-def detect_flood(state=None):
-
-    query = f"flood {state}" if state else "flood"
-
-    xml = fetch_news(query)
-    articles = parse_rss(xml)
-
-    matches = []
-
-    for article in articles:
-
-        title_lower = article["title"].lower()
-
-        if any(keyword in title_lower for keyword in FLOOD_KEYWORDS):
-
-            if state:
-                if state.lower() in title_lower:
-                    matches.append(article)
-                else:
-                    doc = nlp(article["title"])
-                    for ent in doc.ents:
-                        if ent.label_ == "GPE" and state.lower() in ent.text.lower():
-                            matches.append(article)
-                            break
-            else:
-                matches.append(article)
-
-    precise_location = extract_precise_location(matches, state)
-
-    geo = geocode_location(precise_location) if precise_location else None
-
-    weather = {}
-    lat = lon = None
-
-    if geo:
-        lat, lon = geo
-        weather = get_weather(lat, lon)
-
-    if len(matches) >= CONFIRMATION_THRESHOLD:
-
-        alert, reason = evaluate_flood(weather, len(matches))
+    if keyword_trigger or heavy_rain or strong_news:
 
         return {
-            "status": "FLOOD_DETECTED" if alert else "MONITORING",
-            "location": precise_location,
-            "latitude": lat,
-            "longitude": lon,
-            "weather": weather,
-            "rule_reason": reason,
-            "news_count": len(matches),
-            "sources": matches[:3],
-            "detected_at": datetime.utcnow().isoformat()
+            "status": "FLOOD_DETECTED",
+            "location": location,
+            "coordinates": {"lat": lat, "lon": lon},
+            "weather": weather_data,
+            "news_count": len(news_articles),
+            "sources": news_articles,
+            "rule_reason": "Triggered by keyword/news/weather",
+            "timestamp": datetime.now().isoformat()
         }
 
     return {
-        "status": "SAFE",
-        "location": precise_location,
-        "latitude": lat,
-        "longitude": lon,
-        "weather": weather,
-        "sources": [],
-        "message": "Monitoring — no flood signals",
-        "checked_at": datetime.utcnow().isoformat()
+        "status": "NO_FLOOD",
+        "location": location,
+        "coordinates": {"lat": lat, "lon": lon},
+        "weather": weather_data,
+        "news_count": len(news_articles),
+        "sources": news_articles,
+        "rule_reason": "No strong flood indicators",
+        "timestamp": datetime.now().isoformat()
     }
-
-
-# ─────────────────────────────────────────
-# LOCAL TEST
-# ─────────────────────────────────────────
-
-if __name__ == "__main__":
-    result = detect_flood("Sydney")
-    print(result)

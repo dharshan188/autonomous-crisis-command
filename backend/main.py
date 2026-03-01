@@ -135,7 +135,8 @@ async def crisis_command(request: CrisisCommandRequest):
     }
 
 # =========================================================
-# AUTONOMOUS MODE
+# =========================================================
+# AUTONOMOUS MODE (FIXED FULL INTELLIGENCE RETURN)
 # =========================================================
 
 @app.post("/autonomous_scan")
@@ -143,13 +144,18 @@ async def autonomous_scan(request: AutonomousRequest):
 
     result = detect_flood(request.location)
 
+    # Always return result if not flood
     if result["status"] != "FLOOD_DETECTED":
         return result
 
     location_key = result["location"]
 
+    # 🔥 If already pending, still return FULL data
     if location_key in active_autonomous_alerts:
-        return {"status": "ALREADY_PENDING", "location": location_key}
+        return {
+            "status": "ALREADY_PENDING",
+            **result
+        }
 
     crisis_id = str(uuid4())
     active_autonomous_alerts[location_key] = crisis_id
@@ -184,13 +190,13 @@ async def autonomous_scan(request: AutonomousRequest):
         crisis_id
     )
 
+    # 🔥 Return FULL intelligence + call info
     return {
         "status": "FLOOD_CALL_TRIGGERED",
         "crisis_id": crisis_id,
         "call_sid": call_sid,
-        "location": location_key
+        **result
     }
-
 # =========================================================
 # VOICE
 # =========================================================
@@ -205,8 +211,8 @@ async def voice(crisis_id: str = Query(None)):
         action=f"{PUBLIC_URL}/process?crisis_id={crisis_id}",
         method="POST"
     )
-    gather.say("Press 6 to approve dispatch.")
-
+    gather.say("good morning sir ..there is a disaster emergency reported.to call the required emergency response team.")
+    gather.say("Press 6 to approve, or any other key to reject.")
     return Response(str(response), media_type="text/xml")
 
 # =========================================================
@@ -258,7 +264,7 @@ async def process(request: Request, crisis_id: str = Query(None)):
 
                 session.commit()
 
-            response.say("Approved. Emergency teams notified.")
+            response.say("Approved.Thank you sir, Emergency teams notified.")
 
         else:
             if report:

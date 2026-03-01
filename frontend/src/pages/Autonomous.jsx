@@ -15,7 +15,6 @@ function Autonomous() {
   // ================================
 
   const startMonitoring = async () => {
-
     if (!location) return;
 
     setMonitoring(true);
@@ -39,10 +38,9 @@ function Autonomous() {
 
   useEffect(() => {
 
-    if (!monitoring) return;
+    if (!monitoring || !location) return;
 
     const interval = setInterval(async () => {
-
       try {
         const res = await axios.post(`${API}/autonomous_scan`, {
           location
@@ -51,7 +49,6 @@ function Autonomous() {
       } catch (err) {
         console.error(err);
       }
-
     }, 10000);
 
     return () => clearInterval(interval);
@@ -63,8 +60,7 @@ function Autonomous() {
   // ================================
 
   const statusColor = (status) => {
-    if (status === "SAFE") return "bg-green-600";
-    if (status === "MONITORING") return "bg-yellow-500";
+    if (status === "NO_FLOOD") return "bg-green-600";
     if (status === "FLOOD_CALL_TRIGGERED") return "bg-red-600";
     if (status === "ALREADY_PENDING") return "bg-orange-500";
     return "bg-gray-600";
@@ -84,7 +80,7 @@ function Autonomous() {
 
           <input
             type="text"
-            placeholder="Enter city or state (e.g., Sydney)"
+            placeholder="Enter city or state (e.g., Chennai)"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             className="w-full p-3 mb-4 bg-gray-800 rounded-lg"
@@ -123,37 +119,32 @@ function Autonomous() {
 
               {/* LOCATION */}
               {data.location && (
-                <div className="mb-2">
+                <div className="mb-3">
                   📍 <strong>Location:</strong> {data.location}
                 </div>
               )}
 
-              {/* WEATHER */}
+              {/* WEATHER SECTION */}
               {data.weather && (
-                <div className="mt-3 text-sm bg-gray-800 p-4 rounded-lg">
-                  <div>🌡 Temp: {data.weather.temperature ?? "--"}°C</div>
-                  <div>💧 Humidity: {data.weather.humidity ?? "--"}%</div>
-                  <div>🌧 Rain (1h): {data.weather.rain_1h ?? 0} mm</div>
-                  <div>🌬 Wind: {data.weather.wind_speed ?? "--"} m/s</div>
+                <div className="mt-3 text-sm bg-gray-800 p-4 rounded-lg border border-gray-700">
+                  <h4 className="font-semibold mb-2">🌦 Weather Intelligence</h4>
+                  <div>🌡 Temperature: {data.weather.temperature_c ?? "--"}°C</div>
+                  <div>💧 Humidity: {data.weather.humidity_percent ?? "--"}%</div>
+                  <div>🌧 Rain (Last 1h): {data.weather.rain_last_1h_mm ?? 0} mm</div>
+                  <div>🌬 Wind Speed: {data.weather.wind_kmh ?? "--"} km/h</div>
                 </div>
               )}
 
-              {/* FLOOD ALERT MESSAGE */}
+              {/* STATUS MESSAGE */}
               {data.status === "FLOOD_CALL_TRIGGERED" && (
                 <div className="mt-4 text-red-400 font-semibold">
                   🚨 Approval Call Triggered — Awaiting Officer Response
                 </div>
               )}
 
-              {data.status === "SAFE" && (
+              {data.status === "NO_FLOOD" && (
                 <div className="mt-4 text-green-400">
                   🟢 Area is Safe — Continuous Monitoring Active
-                </div>
-              )}
-
-              {data.status === "MONITORING" && (
-                <div className="mt-4 text-yellow-400">
-                  ⚠ News Found — Monitoring Weather Conditions
                 </div>
               )}
 
@@ -163,14 +154,11 @@ function Autonomous() {
                 </div>
               )}
 
-              {/* ========================= */}
-              {/* NEWS SOURCES (ONLY 2) */}
-              {/* ========================= */}
-
+              {/* NEWS SECTION */}
               {data.sources && data.sources.length > 0 && (
                 <div className="mt-6">
                   <h4 className="font-semibold mb-2">
-                    📰 News Sources ({data.news_count || data.sources.length})
+                    📰 Top News ({data.news_count || data.sources.length})
                   </h4>
 
                   {data.sources.slice(0, 2).map((source, index) => (
@@ -195,6 +183,7 @@ function Autonomous() {
           )}
 
         </div>
+
       </div>
     </div>
   );
